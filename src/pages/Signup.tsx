@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 
 export default function Signup() {
@@ -9,12 +10,16 @@ export default function Signup() {
   const [lastName, setLastName] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [warningMessage, setWarningMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleSignup = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setSuccessMessage("");
+    setWarningMessage("");
     setLoading(true);
 
     try {
@@ -31,7 +36,22 @@ export default function Signup() {
         throw new Error("No user was returned from Supabase.");
       }
 
-      if (data.session) {
+      let session = data.session;
+
+      if (!session) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (signInError && !signInError.message.toLowerCase().includes("email not confirmed")) {
+          throw signInError;
+        }
+
+        session = signInData.session;
+      }
+
+      if (session) {
         const { error: profileError } = await supabase.from("profiles").upsert({
           id: data.user.id,
           first_name: firstName,
@@ -39,15 +59,18 @@ export default function Signup() {
         });
 
         if (profileError) {
-          throw profileError;
+          // Auth signup can still succeed even if profile persistence fails.
+          setWarningMessage(
+            `Your account was created, but we could not save your profile details yet: ${profileError.message}`
+          );
         }
+
+        login(session);
+        navigate("/discover");
+        return;
       }
 
-      setSuccessMessage(
-        data.session
-          ? "Account created successfully. You can now log in."
-          : "Check your email to verify your account, then log in."
-      );
+      setSuccessMessage("Check your email to verify your account, then log in.");
     } catch (err: unknown) {
       const rawMessage = err instanceof Error ? err.message : "Signup failed";
       const message = rawMessage.toLowerCase().includes("email rate limit exceeded")
@@ -102,6 +125,7 @@ export default function Signup() {
           />
 
           {error ? <p className="error">{error}</p> : null}
+          {warningMessage ? <p className="error">{warningMessage}</p> : null}
           {successMessage ? <p className="success">{successMessage}</p> : null}
 
           <button className="button" type="submit" disabled={loading}>
