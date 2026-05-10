@@ -84,6 +84,14 @@ a {
   border-radius: 8px;
 }
 
+.form select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .button {
   display: inline-block;
   border: none;

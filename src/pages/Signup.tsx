@@ -8,6 +8,7 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [accountRole, setAccountRole] = useState<"teacher" | "student">("student");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [warningMessage, setWarningMessage] = useState("");
@@ -56,6 +57,7 @@ export default function Signup() {
           id: data.user.id,
           first_name: firstName,
           last_name: lastName,
+          role: accountRole,
         });
 
         if (profileError) {
@@ -113,6 +115,17 @@ export default function Signup() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
+
+          <label htmlFor="role">I am signing up as</label>
+          <select
+            id="role"
+            value={accountRole}
+            onChange={(e) => setAccountRole(e.target.value as "teacher" | "student")}
+            required
+          >
+            <option value="student">Student</option>
+            <option value="teacher">Teacher</option>
+          </select>
 
           <label htmlFor="password">Password</label>
           <input
