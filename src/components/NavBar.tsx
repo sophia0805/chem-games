@@ -13,6 +13,7 @@ export default function NavBar() {
         <nav className="nav-links">
           <Link to="/discover">Discover</Link>
           <Link to="/saved">Saved</Link>
+          <Link to="/classes">Classes</Link>
           <Link to="/profile">Profile</Link>
           {user ? (
             <button type="button" className="link-button" onClick={() => void logout()}>

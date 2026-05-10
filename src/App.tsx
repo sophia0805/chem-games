@@ -8,6 +8,9 @@ import Saved from "./pages/Saved";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import MyClasses from "./pages/MyClasses";
+import CreateClass from "./pages/CreateClass";
+import JoinClass from "./pages/JoinClass";
 import Footer from "./components/Footer";
 
 function App() {
@@ -23,6 +26,9 @@ function App() {
             <Route path="/discover" element={<Discover />} />
             <Route path="/saved" element={<Saved />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/classes" element={<MyClasses />} />
+            <Route path="/classes/create" element={<CreateClass />} />
+            <Route path="/classes/join" element={<JoinClass />} />
           </Routes>
           <Footer />
         </div>
