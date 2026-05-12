@@ -7,12 +7,12 @@ type MembershipRow = {
   role: "teacher" | "student";
   classes:
     | {
-    id: string;
-    name: string;
-    join_code: string;
-    teacher_id: string;
-    is_active: boolean;
-    created_at: string;
+        id: string;
+        name: string;
+        join_code: string;
+        teacher_id: string;
+        is_active: boolean;
+        created_at: string;
       }
     | Array<{
         id: string;
@@ -24,6 +24,10 @@ type MembershipRow = {
       }>
     | null;
 };
+
+function getLinkedClass(row: MembershipRow) {
+  return Array.isArray(row.classes) ? row.classes[0] : row.classes;
+}
 
 export default function MyClasses() {
   const { user } = useAuth();
@@ -78,12 +82,13 @@ export default function MyClasses() {
 
   return (
     <main className="page">
+      <p className="eyebrow">Class workspace</p>
       <h1>My Classes</h1>
 
       {!user ? <p>Please login to view your classes.</p> : null}
 
       {user ? (
-        <div className="row" style={{ marginBottom: "16px" }}>
+        <div className="actions-row">
           {accountRole !== "student" ? (
             <Link className="button" to="/classes/create">
               Create Class
@@ -101,12 +106,12 @@ export default function MyClasses() {
       {error ? <p className="error">{error}</p> : null}
 
       {!loading && user && rows.length === 0 ? (
-        <p>No classes yet. Create one or join with a code.</p>
+        <p className="empty-state">No classes yet. Create one or join with a code.</p>
       ) : null}
 
       <div className="class-grid">
         {rows.map((row) => {
-          const linkedClass = Array.isArray(row.classes) ? row.classes[0] : row.classes;
+          const linkedClass = getLinkedClass(row);
           if (!linkedClass) {
             return null;
           }

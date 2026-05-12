@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function NavBar() {
@@ -8,21 +8,24 @@ export default function NavBar() {
     <header className="nav">
       <div className="nav-inner">
         <Link to="/" className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            Cg
+          </span>
           Chem Games
         </Link>
         <nav className="nav-links">
-          <Link to="/discover">Discover</Link>
-          <Link to="/saved">Saved</Link>
-          <Link to="/classes">Classes</Link>
-          <Link to="/profile">Profile</Link>
+          <NavLink to="/discover">Discover</NavLink>
+          <NavLink to="/saved">Saved</NavLink>
+          <NavLink to="/classes">Classes</NavLink>
+          <NavLink to="/profile">Profile</NavLink>
           {user ? (
             <button type="button" className="link-button" onClick={() => void logout()}>
               Logout
             </button>
           ) : (
             <>
-              <Link to="/login">Login</Link>
-              <Link to="/signup">Signup</Link>
+              <NavLink to="/login">Login</NavLink>
+              <NavLink to="/signup">Signup</NavLink>
             </>
           )}
         </nav>
@@ -30,10 +33,3 @@ export default function NavBar() {
     </header>
   );
 }
-
-
-
-
-
-
-
