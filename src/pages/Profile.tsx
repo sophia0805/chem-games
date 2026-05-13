@@ -57,7 +57,7 @@ export default function Profile() {
         {user && !loadingProfile ? <p>Role: {role || "Not set"}</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {user ? (
-          <div className="row" style={{ marginTop: "16px" }}>
+          <div className="actions-row">
             <Link className="button" to="/classes">
               My Classes
             </Link>
