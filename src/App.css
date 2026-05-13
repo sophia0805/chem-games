@@ -446,6 +446,40 @@ a {
   color: var(--muted);
 }
 
+.class-roster {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.class-roster-title {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--green-dark);
+}
+
+.class-roster-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.class-roster-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--ink);
+}
+
+.class-roster-list li {
+  margin: 4px 0;
+  font-size: 0.92rem;
+}
+
+.class-roster-name {
+  font-weight: 600;
+}
+
 .empty-state {
   border: 1px dashed rgba(15, 143, 85, 0.26);
   border-radius: 8px;
