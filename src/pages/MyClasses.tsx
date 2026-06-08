@@ -2,33 +2,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import ClassGameAssignments from "../components/ClassGameAssignments";
+import ClassGameScores from "../components/ClassGameScores";
 import { supabase } from "../lib/supabaseClient";
 
-type MembershipRow = {
-  role: "teacher" | "student";
-  classes:
-    | {
-        id: string;
-        name: string;
-        join_code: string;
-        teacher_id: string;
-        is_active: boolean;
-        created_at: string;
-      }
-    | Array<{
-        id: string;
-        name: string;
-        join_code: string;
-        teacher_id: string;
-        is_active: boolean;
-        created_at: string;
-      }>
-    | null;
+type ClassInfo = {
+  id: string;
+  name: string;
+  join_code: string;
+  teacher_id: string;
+  is_active: boolean;
+  created_at: string;
 };
 
-function getLinkedClass(row: MembershipRow) {
-  return Array.isArray(row.classes) ? row.classes[0] : row.classes;
-}
+type ClassCard = {
+  classInfo: ClassInfo;
+  membershipRole: "teacher" | "student" | null;
+  canManage: boolean;
+};
 
 type ProfileSnippet = {
   id: string;
@@ -48,6 +39,14 @@ type RosterStudent = {
   displayName: string;
 };
 
+type RpcRosterRow = {
+  class_id: string;
+  user_id: string;
+  joined_at: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
 function displayNameFromProfile(p: ProfileSnippet | null | undefined): string {
   if (!p) {
     return "Student";
@@ -58,22 +57,6 @@ function displayNameFromProfile(p: ProfileSnippet | null | undefined): string {
     .join(" ");
   return full || "Student";
 }
-
-function isTeacherForClass(
-  row: MembershipRow,
-  linkedClass: NonNullable<ReturnType<typeof getLinkedClass>>,
-  userId: string
-) {
-  return row.role === "teacher" || linkedClass.teacher_id === userId;
-}
-
-type RpcRosterRow = {
-  class_id: string;
-  user_id: string;
-  joined_at: string;
-  first_name: string | null;
-  last_name: string | null;
-};
 
 function isMissingRpcError(err: { code?: string; message?: string } | null): boolean {
   if (!err) {
@@ -171,9 +154,62 @@ async function fetchTeacherRosters(
   return { grouped, error: "" };
 }
 
+async function loadClassCards(userId: string): Promise<ClassCard[]> {
+  const [{ data: memberships, error: membershipError }, { data: ownedClasses, error: ownedError }] =
+    await Promise.all([
+      supabase.from("class_memberships").select("class_id, role").eq("user_id", userId),
+      supabase
+        .from("classes")
+        .select("id, name, join_code, teacher_id, is_active, created_at")
+        .eq("teacher_id", userId),
+    ]);
+
+  if (membershipError) {
+    throw new Error(`Could not load class memberships: ${membershipError.message}`);
+  }
+  if (ownedError) {
+    throw new Error(`Could not load your classes: ${ownedError.message}`);
+  }
+
+  const membershipByClassId = new Map<string, "teacher" | "student">();
+  for (const row of memberships ?? []) {
+    membershipByClassId.set(row.class_id as string, row.role as "teacher" | "student");
+  }
+
+  const classMap = new Map<string, ClassInfo>();
+  for (const row of ownedClasses ?? []) {
+    classMap.set(row.id as string, row as ClassInfo);
+  }
+
+  const membershipOnlyIds = [...membershipByClassId.keys()].filter((id) => !classMap.has(id));
+  if (membershipOnlyIds.length > 0) {
+    const { data: memberClasses, error: memberClassesError } = await supabase
+      .from("classes")
+      .select("id, name, join_code, teacher_id, is_active, created_at")
+      .in("id", membershipOnlyIds);
+
+    if (memberClassesError) {
+      throw new Error(`Could not load class details: ${memberClassesError.message}`);
+    }
+    for (const row of memberClasses ?? []) {
+      classMap.set(row.id as string, row as ClassInfo);
+    }
+  }
+
+  const cards: ClassCard[] = [];
+  for (const classInfo of classMap.values()) {
+    const membershipRole = membershipByClassId.get(classInfo.id) ?? null;
+    const canManage = classInfo.teacher_id === userId;
+    cards.push({ classInfo, membershipRole, canManage });
+  }
+
+  cards.sort((a, b) => b.classInfo.created_at.localeCompare(a.classInfo.created_at));
+  return cards;
+}
+
 export default function MyClasses() {
   const { user } = useAuth();
-  const [rows, setRows] = useState<MembershipRow[]>([]);
+  const [classCards, setClassCards] = useState<ClassCard[]>([]);
   const [rosters, setRosters] = useState<Record<string, RosterStudent[]>>({});
   const [accountRole, setAccountRole] = useState<"teacher" | "student" | "">("");
   const [loading, setLoading] = useState(false);
@@ -183,7 +219,7 @@ export default function MyClasses() {
   useEffect(() => {
     const loadClasses = async () => {
       if (!user) {
-        setRows([]);
+        setClassCards([]);
         setRosters({});
         setRosterError("");
         setAccountRole("");
@@ -192,80 +228,56 @@ export default function MyClasses() {
 
       setLoading(true);
       setError("");
-
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (profileError) {
-        setError(`Could not load profile role: ${profileError.message}`);
-        setRows([]);
-        setRosters({});
-        setRosterError("");
-        setLoading(false);
-        return;
-      }
-
-      setAccountRole((profileData?.role as "teacher" | "student" | null) ?? "");
-
-      const { data, error: queryError } = await supabase
-        .from("class_memberships")
-        .select(
-          "role, classes(id, name, join_code, teacher_id, is_active, created_at)"
-        )
-        .eq("user_id", user.id)
-        .order("joined_at", { ascending: false });
-
-      if (queryError) {
-        setError(`Could not load classes: ${queryError.message}`);
-        setRows([]);
-        setRosters({});
-        setRosterError("");
-        setLoading(false);
-        return;
-      }
-
-      const membershipRows = (data as MembershipRow[]) ?? [];
-      setRows(membershipRows);
-
-      const teacherClassIds = [
-        ...new Set(
-          membershipRows
-            .map((row) => {
-              const linkedClass = getLinkedClass(row);
-              if (!linkedClass || !user) {
-                return null;
-              }
-              return isTeacherForClass(row, linkedClass, user.id) ? linkedClass.id : null;
-            })
-            .filter((id): id is string => Boolean(id))
-        ),
-      ];
-
       setRosterError("");
 
-      if (teacherClassIds.length === 0) {
-        setRosters({});
-      } else {
-        const { grouped, error: rosterErr } = await fetchTeacherRosters(
-          supabase,
-          teacherClassIds
-        );
-        if (rosterErr) {
-          setRosterError(rosterErr);
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          throw new Error(`Could not load profile role: ${profileError.message}`);
+        }
+
+        setAccountRole((profileData?.role as "teacher" | "student" | null) ?? "");
+
+        const cards = await loadClassCards(user.id);
+        setClassCards(cards);
+
+        const teacherClassIds = cards
+          .filter((card) => card.canManage)
+          .map((card) => card.classInfo.id);
+
+        if (teacherClassIds.length === 0) {
           setRosters({});
         } else {
-          setRosters(grouped);
+          const { grouped, error: rosterErr } = await fetchTeacherRosters(
+            supabase,
+            teacherClassIds
+          );
+          if (rosterErr) {
+            setRosterError(rosterErr);
+            setRosters({});
+          } else {
+            setRosters(grouped);
+          }
         }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Could not load classes";
+        setError(message);
+        setClassCards([]);
+        setRosters({});
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     void loadClasses();
   }, [user]);
+
+  const hasTeacherClasses = classCards.some((card) => card.canManage);
 
   return (
     <main className="page">
@@ -289,48 +301,52 @@ export default function MyClasses() {
         </div>
       ) : null}
 
+      {user && accountRole === "teacher" && !hasTeacherClasses && !loading ? (
+        <p className="class-assignments-hint">
+          Create a class below, then open it to assign games to your students.
+        </p>
+      ) : null}
+
       {loading ? <p>Loading classes...</p> : null}
       {error ? <p className="error">{error}</p> : null}
       {rosterError ? <p className="error">{rosterError}</p> : null}
 
-      {!loading && user && rows.length === 0 ? (
+      {!loading && user && classCards.length === 0 ? (
         <p className="empty-state">No classes yet. Create one or join with a code.</p>
       ) : null}
 
       <div className="class-grid">
-        {rows.map((row) => {
-          const linkedClass = getLinkedClass(row);
-          if (!linkedClass) {
-            return null;
-          }
-
-          const showRoster =
-            user && isTeacherForClass(row, linkedClass, user.id);
-          const roster = rosters[linkedClass.id] ?? [];
+        {classCards.map((card) => {
+          const { classInfo, membershipRole, canManage } = card;
+          const roster = rosters[classInfo.id] ?? [];
 
           return (
-            <div className="class-item" key={linkedClass.id}>
-              <h3>{linkedClass.name}</h3>
-              <p>Role: {row.role}</p>
-              <p>Status: {linkedClass.is_active ? "Active" : "Inactive"}</p>
-              <p>Join code: {linkedClass.join_code}</p>
-              {showRoster ? (
-                <div className="class-roster">
-                  <h4 className="class-roster-title">
-                    Students in this class ({roster.length})
-                  </h4>
-                  {roster.length === 0 ? (
-                    <p className="class-roster-empty">No students have joined yet.</p>
-                  ) : (
-                    <ul className="class-roster-list">
-                      {roster.map((s) => (
-                        <li key={s.userId}>
-                          <span className="class-roster-name">{s.displayName}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+            <div className="class-item" key={classInfo.id}>
+              <h3>{classInfo.name}</h3>
+              <p>Role: {membershipRole ?? (canManage ? "teacher (owner)" : "member")}</p>
+              <p>Status: {classInfo.is_active ? "Active" : "Inactive"}</p>
+              <p>Join code: {classInfo.join_code}</p>
+              {canManage && user ? (
+                <>
+                  <ClassGameAssignments classId={classInfo.id} teacherId={user.id} />
+                  <div className="class-roster">
+                    <h4 className="class-roster-title">
+                      Students in this class ({roster.length})
+                    </h4>
+                    {roster.length === 0 ? (
+                      <p className="class-roster-empty">No students have joined yet.</p>
+                    ) : (
+                      <ul className="class-roster-list">
+                        {roster.map((s) => (
+                          <li key={s.userId}>
+                            <span className="class-roster-name">{s.displayName}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <ClassGameScores classId={classInfo.id} roster={roster} />
+                </>
               ) : null}
             </div>
           );
