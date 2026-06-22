@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import ClassGameAssignments from "../components/ClassGameAssignments";
 import ClassGameScores from "../components/ClassGameScores";
+import StudentAssignmentScores from "../components/StudentAssignmentScores";
+import { useGameAccess } from "../hooks/useGameAccess";
 import { supabase } from "../lib/supabaseClient";
 
 type ClassInfo = {
@@ -26,7 +28,7 @@ type ProfileSnippet = {
   first_name: string | null;
   last_name: string | null;
 };
-
+ 
 type RosterMembershipRow = {
   class_id: string;
   user_id: string;
@@ -209,6 +211,7 @@ async function loadClassCards(userId: string): Promise<ClassCard[]> {
 
 export default function MyClasses() {
   const { user } = useAuth();
+  const { studentAssignments } = useGameAccess();
   const [classCards, setClassCards] = useState<ClassCard[]>([]);
   const [rosters, setRosters] = useState<Record<string, RosterStudent[]>>({});
   const [accountRole, setAccountRole] = useState<"teacher" | "student" | "">("");
@@ -319,6 +322,9 @@ export default function MyClasses() {
         {classCards.map((card) => {
           const { classInfo, membershipRole, canManage } = card;
           const roster = rosters[classInfo.id] ?? [];
+          const classAssignments = studentAssignments.filter(
+            (assignment) => assignment.classId === classInfo.id
+          );
 
           return (
             <div className="class-item" key={classInfo.id}>
@@ -326,6 +332,9 @@ export default function MyClasses() {
               <p>Role: {membershipRole ?? (canManage ? "teacher (owner)" : "member")}</p>
               <p>Status: {classInfo.is_active ? "Active" : "Inactive"}</p>
               <p>Join code: {classInfo.join_code}</p>
+              {!canManage && user && classAssignments.length > 0 ? (
+                <StudentAssignmentScores assignments={classAssignments} userId={user.id} />
+              ) : null}
               {canManage && user ? (
                 <>
                   <ClassGameAssignments classId={classInfo.id} teacherId={user.id} />

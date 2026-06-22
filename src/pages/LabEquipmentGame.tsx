@@ -1,8 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useGamePlayConfig } from "../context/GamePlayContext";
+import {
+  clearTeacherPreviewProgress,
+  isValidSavedProgress,
+  loadTeacherPreviewProgress,
+  saveTeacherPreviewProgress,
+  type SavedLabEquipmentProgress,
+  type SavedLabEquipmentQuestion,
+  type SavedQuestionStyle,
+} from "../games/labEquipmentProgress";
 import { formatTimer } from "../games/settings";
 import { recordGameAttempt } from "../lib/gameAccess";
+import {
+  clearServerGameProgress,
+  loadServerGameProgress,
+  saveServerGameProgress,
+} from "../lib/gameProgress";
 
 type EquipmentCard = {
   name: string;
@@ -106,11 +120,7 @@ function shuffle<T>(items: T[]): T[] {
   return copy;
 }
 
-type QuestionStyle =
-  | "image-to-name"
-  | "description-to-name"
-  | "name-to-image"
-  | "both-to-name";
+type QuestionStyle = SavedQuestionStyle;
 
 const QUESTION_STYLES: QuestionStyle[] = [
   "image-to-name",
@@ -159,27 +169,245 @@ function getQuestion(usedNames: string[]): Question {
   };
 }
 
+function serializeQuestion(question: Question): SavedLabEquipmentQuestion {
+  if (question.style === "name-to-image") {
+    return {
+      cardName: question.card.name,
+      style: question.style,
+      optionNames: question.options.map((option) => option.name),
+    };
+  }
+
+  return {
+    cardName: question.card.name,
+    style: question.style,
+    optionNames: question.options,
+  };
+}
+
+function deserializeQuestion(saved: SavedLabEquipmentQuestion): Question | null {
+  const card = labEquipmentGame.find((item) => item.name === saved.cardName);
+  if (!card) {
+    return null;
+  }
+
+  if (saved.style === "name-to-image") {
+    const options = saved.optionNames
+      .map((name) => labEquipmentGame.find((item) => item.name === name))
+      .filter((item): item is EquipmentCard => Boolean(item));
+    if (options.length !== saved.optionNames.length) {
+      return null;
+    }
+    return { card, style: saved.style, options };
+  }
+
+  return {
+    card,
+    style: saved.style,
+    options: saved.optionNames,
+  };
+}
+
+type GameRunState = {
+  usedNames: string[];
+  score: number;
+  round: number;
+  selected: string | null;
+  isCorrect: boolean | null;
+  timedOut: boolean;
+  secondsLeft: number | null;
+  question: Question;
+};
+
+function createFreshRun(timerLimitSeconds: number | null): GameRunState {
+  return {
+    usedNames: [],
+    score: 0,
+    round: 1,
+    selected: null,
+    isCorrect: null,
+    timedOut: false,
+    secondsLeft: timerLimitSeconds,
+    question: getQuestion([]),
+  };
+}
+
+function restoreRun(
+  saved: SavedLabEquipmentProgress,
+  timerLimitSeconds: number | null
+): { state: GameRunState; resumed: boolean } {
+  const question = deserializeQuestion(saved.question);
+  if (!question) {
+    return { state: createFreshRun(timerLimitSeconds), resumed: false };
+  }
+
+  return {
+    resumed: true,
+    state: {
+      usedNames: saved.usedNames,
+      score: saved.score,
+      round: saved.round,
+      selected: saved.selected,
+      isCorrect: saved.isCorrect,
+      timedOut: saved.timedOut,
+      secondsLeft:
+        timerLimitSeconds === null ? null : (saved.secondsLeft ?? timerLimitSeconds),
+      question,
+    },
+  };
+}
+
+function buildSavedProgress(
+  state: GameRunState,
+  totalRounds: number,
+  timerLimitSeconds: number | null
+): SavedLabEquipmentProgress {
+  return {
+    version: 1,
+    totalRounds,
+    timerLimitSeconds,
+    usedNames: state.usedNames,
+    score: state.score,
+    round: state.round,
+    selected: state.selected,
+    isCorrect: state.isCorrect,
+    timedOut: state.timedOut,
+    secondsLeft: state.secondsLeft,
+    question: serializeQuestion(state.question),
+  };
+}
+
 export default function LabEquipmentGame() {
   const { user } = useAuth();
-  const { settings, attemptsUsed, isTeacherPreview, classId } = useGamePlayConfig();
+  const { settings, attemptsUsed, isTeacherPreview, classId, assignmentId, assignmentTitle } =
+    useGamePlayConfig();
   const totalRounds = settings.questionCount;
+  const timerLimitSeconds = settings.timerLimitSeconds;
 
-  const [usedNames, setUsedNames] = useState<string[]>([]);
-  const [score, setScore] = useState(0);
-  const [round, setRound] = useState(1);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-  const [timedOut, setTimedOut] = useState(false);
-  const [attemptRecorded, setAttemptRecorded] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(
-    settings.timerLimitSeconds
+  const [progressLoading, setProgressLoading] = useState(
+    () => !isTeacherPreview && Boolean(user && assignmentId)
   );
+  const [runState, setRunState] = useState<GameRunState>(() => createFreshRun(timerLimitSeconds));
+  const [resumedSession, setResumedSession] = useState(false);
+  const [attemptRecorded, setAttemptRecorded] = useState(false);
 
   const attemptRecordedRef = useRef(false);
+  const runStateRef = useRef(runState);
+  const isGameCompleteRef = useRef(false);
+  const saveTimeoutRef = useRef<number | null>(null);
 
-  const question = useMemo(() => getQuestion(usedNames), [usedNames]);
+  runStateRef.current = runState;
+
+  const {
+    usedNames,
+    score,
+    round,
+    selected,
+    isCorrect,
+    timedOut,
+    secondsLeft,
+    question,
+  } = runState;
+
   const isRoundLocked = selected !== null;
   const isGameComplete = round > totalRounds || timedOut;
+  isGameCompleteRef.current = isGameComplete;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProgress = async () => {
+      if (isTeacherPreview) {
+        const saved = loadTeacherPreviewProgress();
+        if (
+          saved &&
+          isValidSavedProgress(saved, totalRounds, timerLimitSeconds) &&
+          deserializeQuestion(saved.question)
+        ) {
+          const restored = restoreRun(saved, timerLimitSeconds);
+          setRunState(restored.state);
+          setResumedSession(restored.resumed);
+        }
+        setProgressLoading(false);
+        return;
+      }
+
+      if (!user || !assignmentId) {
+        setProgressLoading(false);
+        return;
+      }
+
+      try {
+        const saved = await loadServerGameProgress(user.id, assignmentId);
+        if (cancelled) {
+          return;
+        }
+
+        if (
+          saved &&
+          isValidSavedProgress(saved, totalRounds, timerLimitSeconds) &&
+          deserializeQuestion(saved.question)
+        ) {
+          const restored = restoreRun(saved, timerLimitSeconds);
+          setRunState(restored.state);
+          setResumedSession(restored.resumed);
+        }
+      } catch {
+        // Start fresh if the server save cannot be loaded.
+      } finally {
+        if (!cancelled) {
+          setProgressLoading(false);
+        }
+      }
+    };
+
+    void loadProgress();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, assignmentId, isTeacherPreview, totalRounds, timerLimitSeconds]);
+
+  const persistProgress = useCallback(
+    async (state: GameRunState) => {
+      const progress = buildSavedProgress(state, totalRounds, timerLimitSeconds);
+
+      if (isTeacherPreview) {
+        saveTeacherPreviewProgress(progress);
+        return;
+      }
+
+      if (!user || !assignmentId) {
+        return;
+      }
+
+      await saveServerGameProgress({
+        userId: user.id,
+        assignmentId,
+        gameId: "lab-equipment",
+        classId,
+        progress,
+      });
+    },
+    [user, assignmentId, classId, isTeacherPreview, totalRounds, timerLimitSeconds]
+  );
+
+  const clearProgress = useCallback(async () => {
+    if (isTeacherPreview) {
+      clearTeacherPreviewProgress();
+      return;
+    }
+
+    if (!user || !assignmentId) {
+      return;
+    }
+
+    await clearServerGameProgress(user.id, assignmentId);
+  }, [user, assignmentId, isTeacherPreview]);
+
+  const updateRunState = useCallback((patch: Partial<GameRunState>) => {
+    setRunState((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   const recordAttempt = useCallback(async () => {
     if (!user || isTeacherPreview || attemptRecordedRef.current) {
@@ -192,41 +420,68 @@ export default function LabEquipmentGame() {
         userId: user.id,
         gameId: "lab-equipment",
         classId,
+        assignmentId,
         score,
         questionCount: totalRounds,
       });
     } catch {
       // Attempt tracking is optional if the table is missing.
     }
-  }, [user, isTeacherPreview, classId, score, totalRounds]);
+  }, [user, isTeacherPreview, classId, assignmentId, score, totalRounds]);
 
   useEffect(() => {
     if (!isGameComplete) {
       return;
     }
+    void clearProgress();
     void recordAttempt();
-  }, [isGameComplete, recordAttempt]);
+  }, [isGameComplete, recordAttempt, clearProgress]);
 
   useEffect(() => {
-    if (settings.timerLimitSeconds === null || isGameComplete) {
+    if (isGameComplete || progressLoading) {
       return;
     }
 
-    setSecondsLeft(settings.timerLimitSeconds);
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(() => {
+      void persistProgress(runStateRef.current);
+    }, 1000);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [runState, isGameComplete, progressLoading, persistProgress]);
+
+  useEffect(() => {
+    return () => {
+      if (isGameCompleteRef.current || progressLoading) {
+        return;
+      }
+      void persistProgress(runStateRef.current);
+    };
+  }, [persistProgress, progressLoading]);
+
+  useEffect(() => {
+    if (timerLimitSeconds === null || isGameComplete) {
+      return;
+    }
 
     const interval = window.setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev === null || prev <= 1) {
-          window.clearInterval(interval);
-          setTimedOut(true);
-          return 0;
+      setRunState((prev) => {
+        if (prev.secondsLeft === null || prev.secondsLeft <= 1) {
+          return { ...prev, secondsLeft: 0, timedOut: true };
         }
-        return prev - 1;
+        return { ...prev, secondsLeft: prev.secondsLeft - 1 };
       });
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [settings.timerLimitSeconds, isGameComplete]);
+  }, [timerLimitSeconds, isGameComplete]);
 
   const handleAnswer = (choice: string) => {
     if (isRoundLocked || isGameComplete) {
@@ -234,11 +489,11 @@ export default function LabEquipmentGame() {
     }
 
     const answerCorrect = choice === question.card.name;
-    setSelected(choice);
-    setIsCorrect(answerCorrect);
-    if (answerCorrect) {
-      setScore((prev) => prev + 1);
-    }
+    updateRunState({
+      selected: choice,
+      isCorrect: answerCorrect,
+      score: answerCorrect ? score + 1 : score,
+    });
   };
 
   const handleNext = () => {
@@ -246,22 +501,22 @@ export default function LabEquipmentGame() {
       return;
     }
 
-    setUsedNames((prev) => [...prev, question.card.name]);
-    setSelected(null);
-    setIsCorrect(null);
-    setRound((prev) => prev + 1);
+    const nextUsedNames = [...usedNames, question.card.name];
+    updateRunState({
+      usedNames: nextUsedNames,
+      selected: null,
+      isCorrect: null,
+      round: round + 1,
+      question: getQuestion(nextUsedNames),
+    });
   };
 
   const handleRestart = () => {
     attemptRecordedRef.current = false;
     setAttemptRecorded(false);
-    setUsedNames([]);
-    setScore(0);
-    setRound(1);
-    setSelected(null);
-    setIsCorrect(null);
-    setTimedOut(false);
-    setSecondsLeft(settings.timerLimitSeconds);
+    setResumedSession(false);
+    void clearProgress();
+    setRunState(createFreshRun(timerLimitSeconds));
   };
 
   const runsUsed = attemptsUsed + (attemptRecorded ? 1 : 0);
@@ -275,12 +530,23 @@ export default function LabEquipmentGame() {
         ? `Tries: unlimited (preview)`
         : `Tries: ${runsUsed} / ${settings.maxTries}`;
 
+  if (progressLoading) {
+    return (
+      <main className="page page-narrow">
+        <p>Loading your saved game...</p>
+      </main>
+    );
+  }
+
   return (
     <main className="page page-narrow">
       <p className="eyebrow">Game library</p>
-      <h1>Lab Equipment ID</h1>
+      <h1>{assignmentTitle && !isTeacherPreview ? assignmentTitle : "Lab Equipment ID"}</h1>
       {isTeacherPreview ? (
         <p className="discover-game-count">Teacher preview</p>
+      ) : null}
+      {resumedSession && !isGameComplete ? (
+        <p className="discover-game-count">Continuing where you left off.</p>
       ) : null}
       <section className="discover-game">
         <p className="discover-game-count">

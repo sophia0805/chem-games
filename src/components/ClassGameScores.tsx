@@ -28,6 +28,7 @@ function formatAttemptDate(iso: string): string {
 
 export default function ClassGameScores({ classId, roster }: ClassGameScoresProps) {
   const [sections, setSections] = useState<ClassGameScoreSection[]>([]);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [noAssignedGames, setNoAssignedGames] = useState(false);
@@ -35,6 +36,11 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
   const rosterKey = useMemo(
     () => roster.map((student) => student.userId).join(","),
     [roster]
+  );
+
+  const selectedSection = useMemo(
+    () => sections.find((section) => section.assignmentId === selectedAssignmentId) ?? null,
+    [sections, selectedAssignmentId]
   );
 
   useEffect(() => {
@@ -47,11 +53,11 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
 
       try {
         const assignments = await fetchClassGameAssignments(classId);
-        const assignedGameIds = assignments.map((row) => row.gameId);
 
-        if (assignedGameIds.length === 0) {
+        if (assignments.length === 0) {
           if (!cancelled) {
             setSections([]);
+            setSelectedAssignmentId("");
             setNoAssignedGames(true);
           }
           return;
@@ -60,19 +66,25 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
         const attempts = await fetchClassGameScores(
           classId,
           roster.map((student) => student.userId),
-          assignedGameIds
+          assignments
         );
 
         if (!cancelled) {
-          setSections(
-            buildClassGameScoreSections(attempts, assignedGameIds, roster)
-          );
+          const nextSections = buildClassGameScoreSections(attempts, assignments, roster);
+          setSections(nextSections);
+          setSelectedAssignmentId((current) => {
+            if (current && nextSections.some((section) => section.assignmentId === current)) {
+              return current;
+            }
+            return nextSections[0]?.assignmentId ?? "";
+          });
         }
       } catch (err: unknown) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : "Could not load game scores";
           setError(message);
           setSections([]);
+          setSelectedAssignmentId("");
         }
       } finally {
         if (!cancelled) {
@@ -92,7 +104,7 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
     <div className="class-scores">
       <h4 className="class-roster-title">Game scores</h4>
       <p className="class-assignments-hint">
-        Scores from completed runs on games assigned to this class.
+        Choose an assignment to view student tries and scores.
       </p>
       {loading ? <p className="class-assignments-hint">Loading scores...</p> : null}
       {error ? <p className="error">{error}</p> : null}
@@ -102,11 +114,23 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
       {!loading && !error && !noAssignedGames && roster.length === 0 ? (
         <p className="class-roster-empty">No students have joined yet.</p>
       ) : null}
-      {!loading && !error && !noAssignedGames && roster.length > 0 ? (
-        <div className="class-scores-sections">
-          {sections.map((section) => (
-            <div className="class-scores-game" key={section.gameId}>
-              <h5 className="class-scores-game-title">{section.gameTitle}</h5>
+      {!loading && !error && !noAssignedGames && roster.length > 0 && sections.length > 0 ? (
+        <>
+          <label className="class-scores-picker">
+            Assignment
+            <select
+              value={selectedAssignmentId}
+              onChange={(e) => setSelectedAssignmentId(e.target.value)}
+            >
+              {sections.map((section) => (
+                <option key={section.assignmentId} value={section.assignmentId}>
+                  {section.gameTitle}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedSection ? (
+            <div className="class-scores-game">
               <div className="class-scores-table-wrap">
                 <table className="class-scores-table">
                   <thead>
@@ -118,7 +142,7 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
                     </tr>
                   </thead>
                   <tbody>
-                    {section.rows.map((row) => (
+                    {selectedSection.rows.map((row) => (
                       <tr key={row.userId}>
                         <td>{row.displayName}</td>
                         <td>{row.tryCount > 0 ? row.tryCount : "—"}</td>
@@ -144,8 +168,8 @@ export default function ClassGameScores({ classId, roster }: ClassGameScoresProp
                 </table>
               </div>
             </div>
-          ))}
-        </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

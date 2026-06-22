@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { GamePlayProvider } from "../context/GamePlayContext";
 import { useCanAccessGame } from "../hooks/useGameAccess";
 import { useResolvedGamePlay } from "../hooks/useResolvedGamePlay";
@@ -10,12 +10,14 @@ type GameRouteGuardProps = {
 };
 
 export default function GameRouteGuard({ game, children }: GameRouteGuardProps) {
-  const { allowed, loading, role, error } = useCanAccessGame(game.slug);
+  const [searchParams] = useSearchParams();
+  const assignmentId = searchParams.get("assignment");
+  const { allowed, loading, role, error } = useCanAccessGame(game.slug, assignmentId);
   const {
     config,
     loading: configLoading,
     error: configError,
-  } = useResolvedGamePlay(game.slug);
+  } = useResolvedGamePlay(game.slug, assignmentId);
 
   if (loading || configLoading) {
     return (
@@ -53,13 +55,27 @@ export default function GameRouteGuard({ game, children }: GameRouteGuardProps) 
     );
   }
 
+  if (role === "student" && !assignmentId) {
+    return (
+      <main className="page page-narrow">
+        <h1>{game.title}</h1>
+        <p className="lead">Open this game from Discover and pick the assignment your teacher gave you.</p>
+        <div className="actions-row">
+          <Link to="/discover" className="button">
+            Back to Discover
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   if (!allowed) {
     return (
       <main className="page page-narrow">
         <h1>{game.title}</h1>
         <p className="lead">
-          This game has not been assigned to your class yet. Ask your teacher to assign it from My
-          Classes.
+          This assignment is not available for your account. Ask your teacher if you think this is a
+          mistake.
         </p>
         <div className="actions-row">
           <Link to="/discover" className="button">
@@ -87,10 +103,10 @@ export default function GameRouteGuard({ game, children }: GameRouteGuardProps) 
   if (!config.canStart) {
     return (
       <main className="page page-narrow">
-        <h1>{game.title}</h1>
+        <h1>{config.assignmentTitle ?? game.title}</h1>
         <p className="lead">
-          You have used all {config.settings.maxTries} tries for this game. Ask your teacher if you
-          need another attempt.
+          You have used all {config.settings.maxTries} tries for this assignment. Ask your teacher if
+          you need another attempt.
         </p>
         <div className="actions-row">
           <Link to="/discover" className="button">
@@ -109,6 +125,8 @@ export default function GameRouteGuard({ game, children }: GameRouteGuardProps) 
         canStart: config.canStart,
         isTeacherPreview: config.isTeacherPreview,
         classId: config.classId,
+        assignmentId: config.assignmentId,
+        assignmentTitle: config.assignmentTitle,
       }}
     >
       {children}

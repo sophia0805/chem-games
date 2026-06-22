@@ -18,6 +18,7 @@ export function useGameAccess(): UseGameAccessResult {
   const [state, setState] = useState<GameAccessState>({
     role: null,
     assignedGameIds: new Set(),
+    studentAssignments: [],
     loading: true,
     error: "",
     assignmentsTableMissing: false,
@@ -56,15 +57,24 @@ export function useGameAccess(): UseGameAccessResult {
   };
 }
 
-export function useCanAccessGame(slug: string): {
+export function useCanAccessGame(
+  slug: string,
+  assignmentId: string | null
+): {
   allowed: boolean;
   loading: boolean;
   role: AccountRole | null;
   error: string;
 } {
-  const { role, assignedGameIds, loading, error } = useGameAccess();
+  const { role, assignedGameIds, studentAssignments, loading, error } = useGameAccess();
   const allowed =
-    role === "teacher" || (role === "student" && assignedGameIds.has(slug));
+    role === "teacher" ||
+    (role === "student" &&
+      assignmentId !== null &&
+      studentAssignments.some(
+        (assignment) => assignment.assignmentId === assignmentId && assignment.gameId === slug
+      )) ||
+    (role === "student" && assignmentId === null && assignedGameIds.has(slug));
 
   return { allowed, loading, role, error };
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { resolveGamePlayConfig, type GamePlayResolution } from "../lib/gameAccess";
 
-export function useResolvedGamePlay(gameId: string) {
+export function useResolvedGamePlay(gameId: string, assignmentId: string | null) {
   const { user, loading: authLoading } = useAuth();
   const [state, setState] = useState<{
     config: GamePlayResolution | null;
@@ -29,7 +29,7 @@ export function useResolvedGamePlay(gameId: string) {
     const run = async () => {
       setState({ config: null, loading: true, error: "" });
       try {
-        const config = await resolveGamePlayConfig(user, gameId);
+        const config = await resolveGamePlayConfig(user, gameId, assignmentId);
         if (!cancelled) {
           setState({ config, loading: false, error: "" });
         }
@@ -46,7 +46,7 @@ export function useResolvedGamePlay(gameId: string) {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user, gameId]);
+  }, [authLoading, user, gameId, assignmentId]);
 
   return {
     ...state,

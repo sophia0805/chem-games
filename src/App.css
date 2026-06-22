@@ -478,20 +478,131 @@ a {
 .class-assignment-item {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px 12px;
   background: #fafafa;
+  overflow: hidden;
 }
 
 .class-assignment-item + .class-assignment-item {
   margin-top: 10px;
 }
 
+.class-assignment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.class-assignment-toggle {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.class-assignment-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.class-assignment-chevron {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  transform: rotate(-45deg);
+  transition: transform 160ms ease;
+}
+
+.class-assignment-toggle-open .class-assignment-chevron {
+  transform: rotate(45deg);
+}
+
+.class-assignment-summary {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.class-assignment-name {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.class-assignment-game {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.class-assignment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.class-assignment-remove {
+  padding: 4px 8px;
+  color: var(--danger);
+}
+
+.class-assignments-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.class-assignments-picker select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.class-assignment-add-row {
+  margin: 12px 0;
+}
+
+.class-assignment-add-label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.class-assignment-add-label select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+}
+
 .class-assignment-settings {
   display: grid;
   gap: 10px;
-  margin-top: 10px;
-  padding-top: 10px;
+  padding: 0 12px 12px 48px;
   border-top: 1px dashed var(--line);
+  margin-top: 0;
+  padding-top: 12px;
 }
 
 .class-assignment-settings label {
@@ -525,6 +636,25 @@ a {
 .class-scores-sections {
   display: grid;
   gap: 16px;
+}
+
+.class-scores-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.class-scores-picker select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 400;
 }
 
 .class-scores-game-title {
@@ -566,6 +696,43 @@ a {
   color: var(--muted);
   font-weight: 400;
   font-size: 0.8rem;
+}
+
+.student-scores {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.student-scores-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.student-scores-empty {
+  margin: 10px 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.student-scores-play-link {
+  font-weight: 700;
+  color: var(--green-dark);
+  text-decoration: none;
+}
+
+.student-scores-play-link:hover {
+  text-decoration: underline;
+}
+
+.student-scores-table td:last-child {
+  text-align: right;
+  white-space: nowrap;
 }
 
 .class-assignments-sql {

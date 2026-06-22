@@ -7,6 +7,8 @@ export type GamePlayConfig = {
   canStart: boolean;
   isTeacherPreview: boolean;
   classId: string | null;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
 };
 
 const GamePlayContext = createContext<GamePlayConfig | null>(null);
