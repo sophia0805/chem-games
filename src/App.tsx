@@ -9,6 +9,7 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import MyClasses from "./pages/MyClasses";
+import ClassDetail from "./pages/ClassDetail";
 import CreateClass from "./pages/CreateClass";
 import JoinClass from "./pages/JoinClass";
 import LabEquipmentGame from "./pages/LabEquipmentGame";
@@ -46,6 +47,7 @@ function App() {
             <Route path="/classes" element={<MyClasses />} />
             <Route path="/classes/create" element={<CreateClass />} />
             <Route path="/classes/join" element={<JoinClass />} />
+            <Route path="/classes/:classId" element={<ClassDetail />} />
           </Routes>
           <Footer />
         </div>

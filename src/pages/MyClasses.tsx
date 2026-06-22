@@ -1,219 +1,13 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import ClassGameAssignments from "../components/ClassGameAssignments";
-import ClassGameScores from "../components/ClassGameScores";
-import StudentAssignmentScores from "../components/StudentAssignmentScores";
-import { useGameAccess } from "../hooks/useGameAccess";
+import { fetchTeacherRosters, loadClassCards, type ClassCard } from "../lib/classWorkspace";
 import { supabase } from "../lib/supabaseClient";
-
-type ClassInfo = {
-  id: string;
-  name: string;
-  join_code: string;
-  teacher_id: string;
-  is_active: boolean;
-  created_at: string;
-};
-
-type ClassCard = {
-  classInfo: ClassInfo;
-  membershipRole: "teacher" | "student" | null;
-  canManage: boolean;
-};
-
-type ProfileSnippet = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-};
- 
-type RosterMembershipRow = {
-  class_id: string;
-  user_id: string;
-  joined_at: string;
-};
-
-type RosterStudent = {
-  userId: string;
-  joinedAt: string;
-  displayName: string;
-};
-
-type RpcRosterRow = {
-  class_id: string;
-  user_id: string;
-  joined_at: string;
-  first_name: string | null;
-  last_name: string | null;
-};
-
-function displayNameFromProfile(p: ProfileSnippet | null | undefined): string {
-  if (!p) {
-    return "Student";
-  }
-  const full = [p.first_name, p.last_name]
-    .map((s) => (s ?? "").trim())
-    .filter(Boolean)
-    .join(" ");
-  return full || "Student";
-}
-
-function isMissingRpcError(err: { code?: string; message?: string } | null): boolean {
-  if (!err) {
-    return false;
-  }
-  const msg = (err.message ?? "").toLowerCase();
-  return (
-    err.code === "PGRST202" ||
-    msg.includes("could not find the function") ||
-    msg.includes("does not exist")
-  );
-}
-
-async function fetchTeacherRosters(
-  client: SupabaseClient,
-  teacherClassIds: string[]
-): Promise<{ grouped: Record<string, RosterStudent[]>; error: string }> {
-  if (teacherClassIds.length === 0) {
-    return { grouped: {}, error: "" };
-  }
-
-  const { data: rpcData, error: rpcError } = await client.rpc("get_teacher_class_rosters");
-
-  if (!rpcError && Array.isArray(rpcData)) {
-    const grouped: Record<string, RosterStudent[]> = {};
-    for (const row of rpcData as RpcRosterRow[]) {
-      const cid = String(row.class_id);
-      const list = grouped[cid] ?? [];
-      list.push({
-        userId: String(row.user_id),
-        joinedAt: row.joined_at,
-        displayName: displayNameFromProfile({
-          id: String(row.user_id),
-          first_name: row.first_name,
-          last_name: row.last_name,
-        }),
-      });
-      grouped[cid] = list;
-    }
-    return { grouped, error: "" };
-  }
-
-  if (rpcError && !isMissingRpcError(rpcError)) {
-    return {
-      grouped: {},
-      error: `Could not load student lists: ${rpcError.message}`,
-    };
-  }
-
-  const { data: rosterData, error: rosterQueryError } = await client
-    .from("class_memberships")
-    .select("class_id, user_id, joined_at")
-    .in("class_id", teacherClassIds)
-    .eq("role", "student")
-    .order("joined_at", { ascending: true });
-
-  if (rosterQueryError) {
-    return {
-      grouped: {},
-      error: `Could not load student lists: ${rosterQueryError.message}`,
-    };
-  }
-
-  const memberships = (rosterData as RosterMembershipRow[]) ?? [];
-  const studentIds = [...new Set(memberships.map((m) => m.user_id))];
-
-  const profileById = new Map<string, ProfileSnippet>();
-  if (studentIds.length > 0) {
-    const { data: profilesData, error: profilesError } = await client
-      .from("profiles")
-      .select("id, first_name, last_name")
-      .in("id", studentIds);
-
-    if (profilesError) {
-      return {
-        grouped: {},
-        error: `Could not load student lists: ${profilesError.message}`,
-      };
-    }
-    for (const row of (profilesData as ProfileSnippet[]) ?? []) {
-      profileById.set(row.id, row);
-    }
-  }
-
-  const grouped: Record<string, RosterStudent[]> = {};
-  for (const r of memberships) {
-    const list = grouped[r.class_id] ?? [];
-    list.push({
-      userId: r.user_id,
-      joinedAt: r.joined_at,
-      displayName: displayNameFromProfile(profileById.get(r.user_id)),
-    });
-    grouped[r.class_id] = list;
-  }
-  return { grouped, error: "" };
-}
-
-async function loadClassCards(userId: string): Promise<ClassCard[]> {
-  const [{ data: memberships, error: membershipError }, { data: ownedClasses, error: ownedError }] =
-    await Promise.all([
-      supabase.from("class_memberships").select("class_id, role").eq("user_id", userId),
-      supabase
-        .from("classes")
-        .select("id, name, join_code, teacher_id, is_active, created_at")
-        .eq("teacher_id", userId),
-    ]);
-
-  if (membershipError) {
-    throw new Error(`Could not load class memberships: ${membershipError.message}`);
-  }
-  if (ownedError) {
-    throw new Error(`Could not load your classes: ${ownedError.message}`);
-  }
-
-  const membershipByClassId = new Map<string, "teacher" | "student">();
-  for (const row of memberships ?? []) {
-    membershipByClassId.set(row.class_id as string, row.role as "teacher" | "student");
-  }
-
-  const classMap = new Map<string, ClassInfo>();
-  for (const row of ownedClasses ?? []) {
-    classMap.set(row.id as string, row as ClassInfo);
-  }
-
-  const membershipOnlyIds = [...membershipByClassId.keys()].filter((id) => !classMap.has(id));
-  if (membershipOnlyIds.length > 0) {
-    const { data: memberClasses, error: memberClassesError } = await supabase
-      .from("classes")
-      .select("id, name, join_code, teacher_id, is_active, created_at")
-      .in("id", membershipOnlyIds);
-
-    if (memberClassesError) {
-      throw new Error(`Could not load class details: ${memberClassesError.message}`);
-    }
-    for (const row of memberClasses ?? []) {
-      classMap.set(row.id as string, row as ClassInfo);
-    }
-  }
-
-  const cards: ClassCard[] = [];
-  for (const classInfo of classMap.values()) {
-    const membershipRole = membershipByClassId.get(classInfo.id) ?? null;
-    const canManage = classInfo.teacher_id === userId;
-    cards.push({ classInfo, membershipRole, canManage });
-  }
-
-  cards.sort((a, b) => b.classInfo.created_at.localeCompare(a.classInfo.created_at));
-  return cards;
-}
 
 export default function MyClasses() {
   const { user } = useAuth();
-  const { studentAssignments } = useGameAccess();
   const [classCards, setClassCards] = useState<ClassCard[]>([]);
-  const [rosters, setRosters] = useState<Record<string, RosterStudent[]>>({});
+  const [studentCounts, setStudentCounts] = useState<Record<string, number>>({});
   const [accountRole, setAccountRole] = useState<"teacher" | "student" | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -223,7 +17,7 @@ export default function MyClasses() {
     const loadClasses = async () => {
       if (!user) {
         setClassCards([]);
-        setRosters({});
+        setStudentCounts({});
         setRosterError("");
         setAccountRole("");
         return;
@@ -254,7 +48,7 @@ export default function MyClasses() {
           .map((card) => card.classInfo.id);
 
         if (teacherClassIds.length === 0) {
-          setRosters({});
+          setStudentCounts({});
         } else {
           const { grouped, error: rosterErr } = await fetchTeacherRosters(
             supabase,
@@ -262,16 +56,20 @@ export default function MyClasses() {
           );
           if (rosterErr) {
             setRosterError(rosterErr);
-            setRosters({});
+            setStudentCounts({});
           } else {
-            setRosters(grouped);
+            const counts: Record<string, number> = {};
+            for (const id of teacherClassIds) {
+              counts[id] = grouped[id]?.length ?? 0;
+            }
+            setStudentCounts(counts);
           }
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Could not load classes";
         setError(message);
         setClassCards([]);
-        setRosters({});
+        setStudentCounts({});
       } finally {
         setLoading(false);
       }
@@ -306,7 +104,7 @@ export default function MyClasses() {
 
       {user && accountRole === "teacher" && !hasTeacherClasses && !loading ? (
         <p className="class-assignments-hint">
-          Create a class below, then open it to assign games to your students.
+          Create a class below, then open it to assign games and view scores.
         </p>
       ) : null}
 
@@ -321,43 +119,25 @@ export default function MyClasses() {
       <div className="class-grid">
         {classCards.map((card) => {
           const { classInfo, membershipRole, canManage } = card;
-          const roster = rosters[classInfo.id] ?? [];
-          const classAssignments = studentAssignments.filter(
-            (assignment) => assignment.classId === classInfo.id
-          );
+          const studentCount = studentCounts[classInfo.id] ?? 0;
+          const roleLabel = membershipRole ?? (canManage ? "teacher (owner)" : "member");
 
           return (
-            <div className="class-item" key={classInfo.id}>
-              <h3>{classInfo.name}</h3>
-              <p>Role: {membershipRole ?? (canManage ? "teacher (owner)" : "member")}</p>
-              <p>Status: {classInfo.is_active ? "Active" : "Inactive"}</p>
-              <p>Join code: {classInfo.join_code}</p>
-              {!canManage && user && classAssignments.length > 0 ? (
-                <StudentAssignmentScores assignments={classAssignments} userId={user.id} />
-              ) : null}
-              {canManage && user ? (
-                <>
-                  <ClassGameAssignments classId={classInfo.id} teacherId={user.id} />
-                  <div className="class-roster">
-                    <h4 className="class-roster-title">
-                      Students in this class ({roster.length})
-                    </h4>
-                    {roster.length === 0 ? (
-                      <p className="class-roster-empty">No students have joined yet.</p>
-                    ) : (
-                      <ul className="class-roster-list">
-                        {roster.map((s) => (
-                          <li key={s.userId}>
-                            <span className="class-roster-name">{s.displayName}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <ClassGameScores classId={classInfo.id} roster={roster} />
-                </>
-              ) : null}
-            </div>
+            <Link
+              key={classInfo.id}
+              to={`/classes/${classInfo.id}`}
+              className="class-item class-item-link"
+            >
+              <span className="class-item-title">{classInfo.name}</span>
+              <span className="class-item-meta">
+                {roleLabel}
+                {" · "}
+                {classInfo.is_active ? "Active" : "Inactive"}
+                {canManage ? ` · ${studentCount} student${studentCount === 1 ? "" : "s"}` : ""}
+              </span>
+              <span className="class-item-meta">Join code: {classInfo.join_code}</span>
+              <span className="class-item-open">Open class →</span>
+            </Link>
           );
         })}
       </div>

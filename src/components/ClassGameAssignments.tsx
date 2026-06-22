@@ -210,10 +210,7 @@ export default function ClassGameAssignments({ classId, teacherId }: ClassGameAs
 
   return (
     <div className="class-assignments">
-      <h4 className="class-roster-title">Assign games</h4>
-      <p className="class-assignments-hint">
-        Expand an assignment to edit its settings, or add a new one below.
-      </p>
+      <h4 className="class-roster-title">Assign games</h4> 
       {tableMissing ? (
         <p className="error">
           The <code>class_game_assignments</code> table is missing. Run the Game assignments SQL in{" "}
